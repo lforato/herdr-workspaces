@@ -5,10 +5,11 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, h_resizable, v_resizable, resizable_panel } from "gpui-base";
-import { theme, props, closeOverlay, readTextFile, writeTextFile, appHome, pickFolder, notify, nextCommand, exec } from "herdr";
-import { expand, layoutOf, uid } from "./layout.js";
+import { theme, props, closeOverlay, readTextFile, writeTextFile, appHome, pickFolder, notify, nextCommand } from "herdr";
+import { expand, layoutOf, uid, launch, hdo, herdr } from "./launch.js";
 
 const FILE = () => `${appHome()}/data/projects.json`;
+const LOADING = "Opening…"; // the loading tab's name
 // The pane canvas: fixed, so split sizes come out of the ratios exactly. Fits mod.json's width.
 const CANVAS = { w: 740, h: 440 };
 const MIN = 28; // smallest pane in the canvas, px
@@ -22,6 +23,18 @@ const tilde = (dir) => (dir.startsWith(expand("~")) ? "~" + dir.slice(expand("~"
 
 export default class Projects extends View {
   init(_props, cx) {
+    // Mounted as the new space's loading tab (see open()): build, then close this tab.
+    if (props()?.launch) {
+      this.job = props().launch;
+      cx.spawn(async (cx) => {
+        const errors = await launch(this.job, cx);
+        if (errors.length) notify({ title: "Projects", body: errors.join("\n"), level: "error" });
+        const space = ((await herdr("ls")).spaces ?? []).find((s) => s.id === this.job.first.space);
+        const me = space?.tabs.find((t) => t.name === LOADING && !t.terminals?.length);
+        if (me) await hdo("tab.close", { id: me.id, confirmed: true });
+      });
+      return;
+    }
     this.data = { projects: [], profiles: [] };
     this.raw = null; // file text as last read/written (writeTextFile's stale check)
     this.mode = "projects";
@@ -71,18 +84,18 @@ export default class Projects extends View {
     return this.data[this.mode].filter((x) => x.name.toLowerCase().includes(f));
   }
 
-  // launch.py does the work in the background, so the dialog closes at once.
+  // The dialog makes the first space and a loading tab running this mod, then
+  // closes; the loading tab builds the rest (a dialog's work stops when it closes).
   open(item, cx) {
     if (!item || this.busy) return;
     const projects = this.mode === "projects" ? [item] : item.projects.map((id) => this.data.projects.find((p) => p.id === id)).filter(Boolean);
+    if (!projects.length) return;
     this.busy = true;
     cx.spawn(async (cx) => {
       try {
-        const file = `${appHome()}/data/projects-launch-${uid()}.json`;
-        await writeTextFile(file, JSON.stringify({ projects, vp: this.vp }), null);
-        const script = `${appHome()}/mods/projects/launch.py`;
-        const r = await exec("sh", ["-c", 'nohup python3 "$0" "$1" >/dev/null 2>&1 &', script, file]);
-        if (r.code !== 0) throw new Error(r.stderr.trim() || "could not start launch.py");
+        const p = projects[0];
+        const first = await hdo("space.new", { name: p.name, folder: expand(p.folder), tab: p.tabs?.[0]?.name });
+        await hdo("tab.new", { space: first.space, name: LOADING, mod: "projects", props: { launch: { projects, vp: this.vp, first } } });
         this.close();
       } catch (e) {
         notify({ title: "Projects", body: `${item.name}: ${e.message ?? e}`, level: "error" });
@@ -194,6 +207,7 @@ export default class Projects extends View {
 
   render() {
     const t = theme();
+    if (this.job) return this.renderLoading(t);
     try { this.vp = globalThis.window?.viewport_size?.(); } catch {}
     const body = this.view === "list" ? this.renderList(t) : this.view === "project" ? this.renderProject(t) : this.renderProfile(t);
     return v_flex()
@@ -207,6 +221,14 @@ export default class Projects extends View {
       .text_color(t.foreground)
       .on_key_down((e, cx) => this.key(e, cx))
       .children(body);
+  }
+
+  renderLoading(t) {
+    const names = this.job.projects.map((p) => p.name).join(", ");
+    return v_flex().size_full().items_center().justify_center().gap(14).bg(t.background).text_color(t.foreground)
+      .child(div().text_size(56).text_color(t.accent).frames(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"], 80).child("⠋"))
+      .child(div().text_size(15).font_semibold().child(`Opening ${names}`))
+      .child(div().text_size(12).text_color(t.dim).child("Building tabs and panes, starting commands…"));
   }
 
   key(e, cx) {

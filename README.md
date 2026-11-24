@@ -39,7 +39,7 @@ The `mod:projects` line is optional. Without it, `cmd-n` makes a new space (Herd
 ## How it works
 
 - Data is saved to `~/.config/herdr-app/data/projects.json`.
-- The mod builds spaces with `herdr-app do`, which returns the new space, tab and pane ids.
+- Spaces are built with `herdr-app do`, which returns the new space, tab and pane ids.
 - Every pane opens a plain shell. The mod then types `cd <folder> && <command>` into it with `hc send`. A split's own command would run without your shell's PATH and close on exit.
 - Herdr splits 50/50. The mod then moves each border with `pane.resize`. Herdr doesn't report pane sizes, so it estimates them from the window size, and ratios come out close but not exact.
-- Don't close the dialog while it shows "Opening…". The launch runs in the dialog and stops if it closes.
+- Opening hands the project to `launch.py` (Python 3, run in the background) and closes the dialog at once. It builds every tab and split off screen, types the commands in parallel while the shells start, then shows each split tab for a moment to size it. Errors show as a macOS notification.

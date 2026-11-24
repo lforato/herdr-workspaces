@@ -5,8 +5,8 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, h_resizable, v_resizable, resizable_panel } from "gpui-base";
-import { theme, props, closeOverlay, readTextFile, writeTextFile, appHome, pickFolder, notify, nextCommand } from "herdr";
-import { launchProject, expand, layoutOf, uid } from "./launch.js";
+import { theme, props, closeOverlay, readTextFile, writeTextFile, appHome, pickFolder, notify, nextCommand, exec } from "herdr";
+import { expand, layoutOf, uid } from "./layout.js";
 
 const FILE = () => `${appHome()}/data/projects.json`;
 // The pane canvas: fixed, so split sizes come out of the ratios exactly. Fits mod.json's width.
@@ -71,14 +71,18 @@ export default class Projects extends View {
     return this.data[this.mode].filter((x) => x.name.toLowerCase().includes(f));
   }
 
+  // launch.py does the work in the background, so the dialog closes at once.
   open(item, cx) {
     if (!item || this.busy) return;
     const projects = this.mode === "projects" ? [item] : item.projects.map((id) => this.data.projects.find((p) => p.id === id)).filter(Boolean);
     this.busy = true;
-    cx.notify();
     cx.spawn(async (cx) => {
       try {
-        for (const p of projects) await launchProject(p, cx, this.vp);
+        const file = `${appHome()}/data/projects-launch-${uid()}.json`;
+        await writeTextFile(file, JSON.stringify({ projects, vp: this.vp }), null);
+        const script = `${appHome()}/mods/projects/launch.py`;
+        const r = await exec("sh", ["-c", 'nohup python3 "$0" "$1" >/dev/null 2>&1 &', script, file]);
+        if (r.code !== 0) throw new Error(r.stderr.trim() || "could not start launch.py");
         this.close();
       } catch (e) {
         notify({ title: "Projects", body: `${item.name}: ${e.message ?? e}`, level: "error" });
@@ -217,7 +221,7 @@ export default class Projects extends View {
     }
     const items = this.items();
     // closing mid-launch cancels it (the launch is this dialog's task)
-    if (k === "escape") { if (!this.busy) this.close(); cx.stop_propagation(); return; }
+    if (k === "escape") { this.close(); cx.stop_propagation(); return; }
     if (k === "down") this.at = Math.min(items.length - 1, this.at + 1);
     else if (k === "up") this.at = Math.max(0, this.at - 1);
     else if (k === "tab") { this.mode = this.mode === "projects" ? "profiles" : "projects"; this.at = 0; this.armed = null; }
@@ -294,7 +298,7 @@ export default class Projects extends View {
       this.field(t, this.filter, false),
       this.error ? div().text_color(t.blocked).child(this.error) : null,
       v_flex().id("pj-list").flex_1().min_h(0).overflow_y_scrollbar().gap(2).children(items.length ? items.map(row) : [empty]),
-      div().text_size(11).text_color(t.dim).child(this.busy ? "Opening…" : "Enter open · ↑↓ move · tab projects/profiles · cmd-n new · cmd-e edit · cmd-⌫ delete"),
+      div().text_size(11).text_color(t.dim).child("Enter open · ↑↓ move · tab projects/profiles · cmd-n new · cmd-e edit · cmd-⌫ delete"),
     ].filter(Boolean);
   }
 

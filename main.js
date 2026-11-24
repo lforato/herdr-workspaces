@@ -5,11 +5,10 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, h_resizable, v_resizable, resizable_panel } from "gpui-base";
-import { theme, props, closeOverlay, readTextFile, writeTextFile, appHome, pickFolder, notify, nextCommand } from "herdr";
-import { expand, layoutOf, uid, launch, hdo, herdr } from "./launch.js";
+import { theme, props, closeOverlay, openOverlay, readTextFile, writeTextFile, appHome, pickFolder, notify, nextCommand } from "herdr";
+import { expand, layoutOf, uid, launch } from "./launch.js";
 
 const FILE = () => `${appHome()}/data/projects.json`;
-const LOADING = "Opening…"; // the loading tab's name
 // The pane canvas: fixed, so split sizes come out of the ratios exactly. Fits mod.json's width.
 const CANVAS = { w: 740, h: 440 };
 const MIN = 28; // smallest pane in the canvas, px
@@ -24,14 +23,20 @@ const tilde = (dir) => (dir.startsWith(expand("~")) ? "~" + dir.slice(expand("~"
 export default class Projects extends View {
   init(_props, cx) {
     // Mounted as the new space's loading tab (see open()): build, then close this tab.
+    // Opened as the small loading dialog (see open()): it holds the keyboard so
+    // nothing else is used meanwhile, builds the projects, then closes itself.
     if (props()?.launch) {
       this.job = props().launch;
+      this.keys = cx.focus_handle();
+      this.keys.focus();
+      cx.timer.after(50, () => this.keys.focus());
       cx.spawn(async (cx) => {
-        const errors = await launch(this.job, cx);
-        if (errors.length) notify({ title: "Projects", body: errors.join("\n"), level: "error" });
-        const space = ((await herdr("ls")).spaces ?? []).find((s) => s.id === this.job.first.space);
-        const me = space?.tabs.find((t) => t.name === LOADING && !t.terminals?.length);
-        if (me) await hdo("tab.close", { id: me.id, confirmed: true });
+        try {
+          const errors = await launch(this.job, cx);
+          if (errors.length) notify({ title: "Projects", body: errors.join("\n"), level: "error" });
+        } finally {
+          this.close();
+        }
       });
       return;
     }
@@ -41,7 +46,6 @@ export default class Projects extends View {
     this.view = "list";
     this.at = 0;
     this.armed = null; // id waiting for a second delete
-    this.busy = false;
     this.n = 0; // element id counter for editor rows
     this.filter = InputState.new({ placeholder: "Filter by name…" });
     this.filter.on("change", (_e, cx) => { this.at = 0; this.armed = null; cx.notify(); });
@@ -84,25 +88,14 @@ export default class Projects extends View {
     return this.data[this.mode].filter((x) => x.name.toLowerCase().includes(f));
   }
 
-  // The dialog makes the first space and a loading tab running this mod, then
-  // closes; the loading tab builds the rest (a dialog's work stops when it closes).
-  open(item, cx) {
-    if (!item || this.busy) return;
+  // A dialog's work stops when it closes, so the launch runs in a small modal
+  // dialog of its own that closes when it's done.
+  open(item) {
+    if (!item) return;
     const projects = this.mode === "projects" ? [item] : item.projects.map((id) => this.data.projects.find((p) => p.id === id)).filter(Boolean);
     if (!projects.length) return;
-    this.busy = true;
-    cx.spawn(async (cx) => {
-      try {
-        const p = projects[0];
-        const first = await hdo("space.new", { name: p.name, folder: expand(p.folder), tab: p.tabs?.[0]?.name });
-        await hdo("tab.new", { space: first.space, name: LOADING, mod: "projects", props: { launch: { projects, vp: this.vp, first } } });
-        this.close();
-      } catch (e) {
-        notify({ title: "Projects", body: `${item.name}: ${e.message ?? e}`, level: "error" });
-      }
-      this.busy = false;
-      cx.notify();
-    });
+    openOverlay({ mod: "projects", kind: "dialog", modal: true, width: 340, height: 190, props: { launch: { projects, vp: this.vp } } });
+    this.close();
   }
 
   remove(item, cx) {
@@ -225,10 +218,12 @@ export default class Projects extends View {
 
   renderLoading(t) {
     const names = this.job.projects.map((p) => p.name).join(", ");
-    return v_flex().size_full().items_center().justify_center().gap(14).bg(t.background).text_color(t.foreground)
-      .child(div().text_size(56).text_color(t.accent).frames(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"], 80).child("⠋"))
-      .child(div().text_size(15).font_semibold().child(`Opening ${names}`))
-      .child(div().text_size(12).text_color(t.dim).child("Building tabs and panes, starting commands…"));
+    return v_flex().id("pj-loading").size_full().items_center().justify_center().gap(10).p(18).bg(t.popover).text_color(t.foreground)
+      .track_focus(this.keys)
+      .on_key_down((_e, cx) => cx.stop_propagation()) // Esc would close it and stop the launch
+      .child(div().text_size(40).text_color(t.accent).frames(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"], 80).child("⠋"))
+      .child(div().max_w_full().truncate().text_size(14).font_semibold().child(`Opening ${names}`))
+      .child(div().text_size(11.5).text_color(t.dim).child("Building tabs and panes…"));
   }
 
   key(e, cx) {

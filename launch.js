@@ -105,18 +105,15 @@ async function resize(tab, jobs, cx) {
   }
 }
 
-// `first`: the space the dialog already made for this project ({ space, tab, terminal }).
-async function launchProject(p, area, sends, cx, first) {
+async function launchProject(p, area, sends, cx) {
   const folder = expand(p.folder);
   const tabs = p.tabs?.length ? p.tabs : [{ name: "" }];
-  let space = first?.space;
-  let firstTab = first?.tab;
+  let space, firstTab;
   const resizes = [];
   // Built off screen (focus false), so typing elsewhere isn't caught by the new terminals.
-  for (const [i, t] of tabs.entries()) {
+  for (const t of tabs) {
     let r;
-    if (i === 0 && first) r = first;
-    else if (space) r = await hdo("tab.new", { space, name: t.name, folder, focus: false });
+    if (space) r = await hdo("tab.new", { space, name: t.name, folder, focus: false });
     else {
       r = await hdo("space.new", { name: p.name, folder, tab: t.name, focus: false });
       space = r.space;
@@ -143,7 +140,7 @@ async function launchProject(p, area, sends, cx, first) {
   return errors;
 }
 
-// job: { projects, vp, first }. Answers the errors, one line each.
+// job: { projects, vp }. Answers the errors, one line each.
 export async function launch(job, cx) {
   // ponytail: Herdr doesn't report pane sizes. Window minus sidebar and chrome,
   // measured on one setup. Ratios come out close, not exact.
@@ -151,9 +148,9 @@ export async function launch(job, cx) {
   const area = { w: (job.vp?.width ?? 1600) / z - 290, h: (job.vp?.height ?? 1000) / z - 95 };
   const errors = [];
   const sends = [];
-  for (const [i, p] of job.projects.entries()) {
+  for (const p of job.projects) {
     try {
-      errors.push(...(await launchProject(p, area, sends, cx, i === 0 ? job.first : null)));
+      errors.push(...(await launchProject(p, area, sends, cx)));
     } catch (e) {
       errors.push(`${p.name}: ${e.message ?? e}`);
     }

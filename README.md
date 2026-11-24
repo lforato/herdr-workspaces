@@ -2,7 +2,7 @@
 
 A [Herdr](https://herdr.dev) desktop mod that saves space layouts as projects and starts them in one step.
 
-- **Projects:** a name, a folder, and tabs. Each tab has panes, and each pane has a command and a split direction (right or down).
+- **Projects:** a name, a folder, and tabs. Each tab is a pane layout you draw: select a pane, split it vertically or horizontally, drag borders to size it, delete it. Each pane has a command and, optionally, its own folder.
 - **Apps:** Herdr mods to open after the layout is built, for example `gitview-tab`. Each opens in the new space, as if you pressed its key there.
 - **Profiles:** a group of projects that start together, one space each.
 - Create, edit, filter, open and delete them from one dialog. There is no config file to write by hand.
@@ -40,6 +40,6 @@ The `mod:projects` line is optional. Without it, `cmd-n` makes a new space (Herd
 
 - Data is saved to `~/.config/herdr-app/data/projects.json`.
 - The mod builds spaces with `herdr-app do`, which returns the new space, tab and pane ids.
-- The first pane of each tab runs its command as `sh -c "<command>"` inside your shell. The shell stays open after the command exits.
-- Split panes open a plain shell. The mod then types `cd <folder> && <command>` into it with `hc send`. A split's own command would run without your shell's PATH and close on exit.
+- Every pane opens a plain shell. The mod then types `cd <folder> && <command>` into it with `hc send`. A split's own command would run without your shell's PATH and close on exit.
+- Herdr splits 50/50. The mod then moves each border with `pane.resize`. Herdr doesn't report pane sizes, so it estimates them from the window size, and ratios come out close but not exact.
 - Don't close the dialog while it shows "Opening…". The launch runs in the dialog and stops if it closes.

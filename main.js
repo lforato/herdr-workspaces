@@ -4,12 +4,21 @@
 // cmd-n new, cmd-e edit, cmd-backspace delete (twice). Editors: cmd-s saves, Esc goes back.
 
 import { View, div } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input } from "gpui-base";
+import { v_flex, h_flex, InputState, Input, h_resizable, v_resizable, resizable_panel } from "gpui-base";
 import { theme, props, closeOverlay, readTextFile, writeTextFile, appHome, pickFolder, notify, nextCommand } from "herdr";
-import { launchProject, expand } from "./launch.js";
+import { launchProject, expand, layoutOf, uid } from "./launch.js";
 
 const FILE = () => `${appHome()}/data/projects.json`;
-const uid = () => Math.random().toString(36).slice(2, 12);
+// The pane canvas: fixed, so split sizes come out of the ratios exactly. Fits mod.json's width.
+const CANVAS = { w: 740, h: 440 };
+const MIN = 28; // smallest pane in the canvas, px
+
+const leaves = (n) => (n.split ? [...leaves(n.a), ...leaves(n.b)] : [n]);
+const replace = (n, id, fn) => (n.id === id ? fn(n) : n.split ? { ...n, a: replace(n.a, id, fn), b: replace(n.b, id, fn) } : n);
+// Splits get new ids so their resizable groups start again from the ratios.
+const fresh = (n) => (n.split ? { ...n, id: uid(), a: fresh(n.a), b: fresh(n.b) } : n);
+const drop = (n, id) => (!n.split ? n : n.a.id === id ? fresh(n.b) : n.b.id === id ? fresh(n.a) : { ...n, a: drop(n.a, id), b: drop(n.b, id) });
+const tilde = (dir) => (dir.startsWith(expand("~")) ? "~" + dir.slice(expand("~").length) : dir);
 
 export default class Projects extends View {
   init(_props, cx) {
@@ -69,7 +78,7 @@ export default class Projects extends View {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        for (const p of projects) await launchProject(p, cx);
+        for (const p of projects) await launchProject(p, cx, this.vp);
         this.close();
       } catch (e) {
         notify({ title: "Projects", body: `${item.name}: ${e.message ?? e}`, level: "error" });
@@ -102,17 +111,26 @@ export default class Projects extends View {
     return InputState.new({ value: value ?? "", placeholder });
   }
 
-  paneForm(p = {}) {
-    return { key: ++this.n, cmd: this.input(p.command, "command (empty: a shell)"), split: p.split === "right" ? "right" : "down" };
+  leafForm(l = {}) {
+    return { id: l.id ?? uid(), cmd: this.input(l.command, "command (empty: just a shell)"), dir: this.input(l.dir, "project folder") };
   }
 
-  tabForm(t = { panes: [{}] }) {
-    return { key: ++this.n, name: this.input(t.name, "tab name"), panes: (t.panes?.length ? t.panes : [{}]).map((p) => this.paneForm(p)) };
+  tabForm(t = { name: "" }) {
+    const form = (n) => (n.split ? { id: n.id ?? uid(), split: n.split, ratio: n.ratio ?? 0.5, a: form(n.a), b: form(n.b) } : this.leafForm(n));
+    const layout = form(layoutOf(t));
+    return { key: ++this.n, name: this.input(t.name, "Tab name"), layout, sel: leaves(layout)[0].id };
   }
 
   editProject(p) {
-    p ??= { id: null, name: "", folder: "", tabs: [{ name: "", panes: [{ command: "" }] }] };
-    this.form = { id: p.id, name: this.input(p.name, "My project"), folder: this.input(p.folder, "~/Projects/my-project"), apps: this.input((p.apps ?? []).join(", "), "Herdr mods to open, e.g. gitview-tab"), tabs: p.tabs.map((t) => this.tabForm(t)) };
+    p ??= { id: null, name: "", folder: "", tabs: [{ name: "" }] };
+    this.form = {
+      id: p.id,
+      name: this.input(p.name, "My project"),
+      folder: this.input(p.folder, "~/Projects/my-project"),
+      apps: this.input((p.apps ?? []).join(", "), "Herdr mods to open, e.g. gitview-tab"),
+      tabs: p.tabs.map((t) => this.tabForm(t)),
+      tab: 0,
+    };
     this.view = "project";
     this.form.name.focus();
   }
@@ -121,11 +139,14 @@ export default class Projects extends View {
     const f = this.form;
     const name = f.name.value().trim();
     if (!name) { this.formError = "Name is required"; cx.notify(); return; }
+    const toData = (n) => (n.split
+      ? { id: n.id, split: n.split, ratio: Math.round(n.ratio * 1000) / 1000, a: toData(n.a), b: toData(n.b) }
+      : { id: n.id, command: n.cmd.value().trim(), dir: n.dir.value().trim() });
     const project = {
       id: f.id ?? uid(),
       name,
       folder: f.folder.value().trim(),
-      tabs: f.tabs.map((t) => ({ name: t.name.value().trim(), panes: t.panes.map((p) => ({ command: p.cmd.value().trim(), split: p.split })) })),
+      tabs: f.tabs.map((t) => ({ name: t.name.value().trim(), layout: toData(t.layout) })),
       apps: f.apps.value().split(/[\s,]+/).filter(Boolean),
     };
     const list = this.data.projects;
@@ -169,6 +190,7 @@ export default class Projects extends View {
 
   render() {
     const t = theme();
+    try { this.vp = globalThis.window?.viewport_size?.(); } catch {}
     const body = this.view === "list" ? this.renderList(t) : this.view === "project" ? this.renderProject(t) : this.renderProfile(t);
     return v_flex()
       .id("projects")
@@ -278,46 +300,126 @@ export default class Projects extends View {
 
   renderProject(t) {
     const f = this.form;
-    const label = (s) => div().w(64).flex_none().text_size(12).text_color(t.muted).child(s);
-    const browse = this.btn(t, "pj-browse", "Browse…", (cx) => cx.spawn(async (cx) => {
+    const tab = f.tabs[f.tab];
+    const label = (s) => div().w(56).flex_none().text_size(12).text_color(t.muted).child(s);
+    const browse = (id, state) => this.btn(t, id, "Browse…", (cx) => cx.spawn(async (cx) => {
       const dir = await pickFolder({ prompt: "Use folder" });
-      if (dir) f.folder.set_value(dir.startsWith(expand("~")) ? "~" + dir.slice(expand("~").length) : dir);
+      if (dir) state.set_value(tilde(dir));
       cx.notify();
     }));
-    const move = (i, by) => (cx) => {
-      const j = i + by;
-      if (j < 0 || j >= f.tabs.length) return;
-      [f.tabs[i], f.tabs[j]] = [f.tabs[j], f.tabs[i]];
-      cx.notify();
-    };
-    const paneRow = (tab, p, pi) => h_flex().gap(6).items_center()
-      .child(pi === 0
-        ? div().w(70).flex_none().text_size(11.5).text_color(t.dim).child("main")
-        : div().id(`pj-split-${p.key}`).w(70).flex_none().px(6).py(4).rounded(6).border_1().border_color(t.border).text_size(11.5).cursor_pointer()
-          .hover((s) => s.bg(t.hover))
-          .on_click((_e, cx) => { p.split = p.split === "right" ? "down" : "right"; cx.notify(); })
-          .child(p.split === "right" ? "→ right" : "↓ down"))
-      .child(this.field(t, p.cmd))
-      .when(tab.panes.length > 1, (el) => el.child(this.btn(t, `pj-rmpane-${p.key}`, "✕", (cx) => { tab.panes.splice(pi, 1); cx.notify(); })));
-    const tabCard = (tab, i) => v_flex().gap(6).p(10).rounded(8).border_1().border_color(t.border).bg(t.surface)
-      .child(h_flex().gap(6).items_center()
-        .child(div().w(46).flex_none().text_size(11.5).text_color(t.dim).child(`Tab ${i + 1}`))
-        .child(this.field(t, tab.name))
-        .child(this.btn(t, `pj-up-${tab.key}`, "↑", move(i, -1)))
-        .child(this.btn(t, `pj-down-${tab.key}`, "↓", move(i, 1)))
-        .when(f.tabs.length > 1, (el) => el.child(this.btn(t, `pj-rmtab-${tab.key}`, "Remove", (cx) => { f.tabs.splice(i, 1); cx.notify(); }, { danger: true }))))
-      .children(tab.panes.map((p, pi) => paneRow(tab, p, pi)))
-      .child(h_flex().child(this.btn(t, `pj-addpane-${tab.key}`, "+ pane", (cx) => { tab.panes.push(this.paneForm({ split: "right" })); cx.notify(); })));
     return [
       this.header(t, f.id ? "Edit project" : "New project"),
       h_flex().gap(8).items_center().child(label("Name")).child(this.field(t, f.name)),
-      h_flex().gap(8).items_center().child(label("Folder")).child(this.field(t, f.folder)).child(browse),
+      h_flex().gap(8).items_center().child(label("Folder")).child(this.field(t, f.folder)).child(browse("pj-browse", f.folder)),
       h_flex().gap(8).items_center().child(label("Apps")).child(this.field(t, f.apps)),
-      v_flex().id("pj-tabs").flex_1().min_h(0).overflow_y_scrollbar().gap(8)
-        .children(f.tabs.map(tabCard))
-        .child(h_flex().child(this.btn(t, "pj-addtab", "+ tab", (cx) => { f.tabs.push(this.tabForm()); cx.notify(); }))),
+      h_flex().flex_1().min_h(0).gap(14).items_start()
+        .child(this.renderTabs(t, f))
+        .child(v_flex().gap(10)
+          .child(div().w(CANVAS.w).h(CANVAS.h).flex_none().child(this.renderNode(t, tab, tab.layout, CANVAS.w, CANVAS.h)))
+          .child(this.renderTools(t, tab))),
       this.footer(t, (cx) => this.saveProject(cx)),
     ];
+  }
+
+  // Tabs down the left: click one to edit its panes, hover to rename or remove it.
+  renderTabs(t, f) {
+    const row = (tab, i) => {
+      const on = f.tab === i;
+      const hover = this.hoverTab === tab.key;
+      return h_flex().id(`pj-tab-${tab.key}`).h(36).px(8).gap(4).items_center().rounded(7).cursor_pointer()
+        .when(on, (el) => el.bg(t.solid).text_color(t.solid_foreground))
+        .when(!on, (el) => el.border_1().border_color(t.border).hover((s) => s.bg(t.hover)))
+        .on_hover((h, cx) => { this.hoverTab = h ? tab.key : this.hoverTab === tab.key ? null : this.hoverTab; cx.notify(); })
+        .on_click((_e, cx) => { f.tab = i; cx.notify(); })
+        .child(on || hover
+          ? Input.new(tab.name).flex_1().h_full().text_size(12.5).text_color(on ? t.solid_foreground : t.foreground)
+          : div().flex_1().truncate().text_size(12.5).child(tab.name.value().trim() || `Tab ${i + 1}`))
+        .when(hover && f.tabs.length > 1, (el) => el.child(div().id(`pj-rmtab-${tab.key}`).px(4).rounded(4).text_size(11).cursor_pointer()
+          .text_color(on ? t.solid_foreground : t.dim)
+          .hover((s) => s.text_color(t.blocked))
+          .on_click((_e, cx) => {
+            cx.stop_propagation();
+            f.tabs.splice(i, 1);
+            f.tab = Math.min(f.tab > i ? f.tab - 1 : f.tab, f.tabs.length - 1);
+            cx.notify();
+          })
+          .child("✕")));
+    };
+    return v_flex().id("pj-tabs").w(170).flex_none().max_h_full().overflow_y_scrollbar().gap(6)
+      .children(f.tabs.map(row))
+      .child(div().id("pj-addtab").h(36).flex().items_center().justify_center().rounded(7).border_1().border_dashed().border_color(t.border)
+        .text_color(t.muted).cursor_pointer()
+        .hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .on_click((_e, cx) => { f.tabs.push(this.tabForm()); f.tab = f.tabs.length - 1; cx.notify(); })
+        .child("+"));
+  }
+
+  // A split is a resizable group (drag its border); a leaf is a pane card.
+  renderNode(t, tab, n, w, h) {
+    if (!n.split) return this.renderLeaf(t, tab, n);
+    const right = n.split === "right";
+    const [wa, ha] = right ? [w * n.ratio, h] : [w, h * n.ratio];
+    const [wb, hb] = right ? [w - wa, h] : [w, h - ha];
+    return (right ? h_resizable : v_resizable)(`pj-g-${n.id}`).size_full()
+      .on_resize((sizes) => { const sum = sizes[0] + sizes[1]; if (sum > 0) n.ratio = sizes[0] / sum; })
+      .child(resizable_panel().size(right ? wa : ha).size_range(MIN).child(this.renderNode(t, tab, n.a, wa, ha)))
+      .child(resizable_panel().size(right ? wb : hb).size_range(MIN).child(this.renderNode(t, tab, n.b, wb, hb)));
+  }
+
+  // A pane card looks like a small terminal: its folder in the title strip, its command at a prompt.
+  renderLeaf(t, tab, n) {
+    const on = tab.sel === n.id;
+    const mono = t.typography?.mono ?? "Menlo";
+    const line = on ? t.accent : t.border;
+    const choose = div().id(`pj-dir-${n.id}`).flex_none().px(6).py(2).rounded(4).text_size(11).text_color(t.dim).cursor_pointer()
+      .hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .on_click((_e, cx) => cx.spawn(async (cx) => {
+        const dir = await pickFolder({ prompt: "Run in this folder" });
+        if (dir) n.dir.set_value(tilde(dir));
+        cx.notify();
+      }))
+      .child("Choose…");
+    return div().size_full().p(3).child(
+      v_flex().id(`pj-leaf-${n.id}`).size_full().overflow_hidden().rounded(8).border_1().border_color(line).bg(t.background)
+        .on_mouse_down("left", (_e, cx) => { if (tab.sel !== n.id) { tab.sel = n.id; cx.notify(); } })
+        .child(h_flex().h(28).flex_none().pl(10).pr(4).gap(6).items_center().border_b_1().border_color(line).bg(on ? t.selected : t.surface)
+          .child(div().flex_none().text_size(11).opacity(0.7).child("📁"))
+          .child(Input.new(n.dir).flex_1().h_full().text_size(11.5).text_color(t.muted))
+          .child(choose))
+        .child(h_flex().flex_none().px(14).pt(10).gap(8).items_center()
+          .child(div().flex_none().font_family(mono).text_size(14).text_color(on ? t.accent : t.dim).child("❯"))
+          .child(Input.new(n.cmd).flex_1().h(30).font_family(mono).text_size(13.5).text_color(t.foreground))));
+  }
+
+  // Acts on the selected pane.
+  renderTools(t, tab) {
+    const only = !tab.layout.split;
+    const icon = (right) => div().w(22).h(16).flex().when(right, (el) => el.flex_row()).when(!right, (el) => el.flex_col())
+      .rounded(3).border_1().border_color(t.muted)
+      .child(div().flex_1().border_color(t.muted).when(right, (el) => el.border_r_1()).when(!right, (el) => el.border_b_1()))
+      .child(div().flex_1());
+    const tool = (id, glyph, text, onClick, { danger = false, off = false } = {}) => h_flex().id(id).h(34).px(12).gap(8).items_center()
+      .rounded(7).border_1().border_color(t.border).text_size(12)
+      .text_color(off ? t.dim : danger ? t.blocked : t.foreground)
+      .when(!off, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => onClick(cx)))
+      .when(off, (el) => el.opacity(0.5))
+      .child(glyph)
+      .child(text);
+    const split = (dir) => (cx) => {
+      const b = this.leafForm();
+      tab.layout = replace(tab.layout, tab.sel, (l) => ({ id: uid(), split: dir, ratio: 0.5, a: l, b }));
+      tab.sel = b.id;
+      cx.notify();
+    };
+    return h_flex().w(CANVAS.w).gap(8).items_center()
+      .child(tool("pj-split-right", icon(true), "Split vertically", split("right")))
+      .child(tool("pj-split-down", icon(false), "Split horizontally", split("down")))
+      .child(div().flex_1().text_size(11).text_color(t.dim).child("Click a pane to select it · drag a border to resize"))
+      .child(tool("pj-rmpane", div().child("🗑"), "Delete pane", (cx) => {
+        tab.layout = drop(tab.layout, tab.sel);
+        tab.sel = leaves(tab.layout)[0].id;
+        cx.notify();
+      }, { danger: true, off: only }));
   }
 
   renderProfile(t) {

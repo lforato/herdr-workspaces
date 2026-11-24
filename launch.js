@@ -44,7 +44,7 @@ async function splits(tab, terminal, folder) {
   }
 }
 
-export async function launchProject(p) {
+export async function launchProject(p, cx) {
   const folder = expand(p.folder);
   const tabs = p.tabs?.length ? p.tabs : [{ name: "", panes: [{ command: "" }] }];
   const [first, ...rest] = tabs;
@@ -55,4 +55,14 @@ export async function launchProject(p) {
     await splits(t, r2.terminal, folder);
   }
   await hdo("tab.select", { id: r.tab });
+  // Herdr apps (mods) open against the focused space/terminal, like their key would.
+  // mod.open toggles, so wait for each one's overlay to finish before the next.
+  for (const name of p.apps ?? []) {
+    await hdo("mod.open", { name });
+    for (let i = 0; i < 40; i++) {
+      const s = JSON.parse((await exec("herdr-app", ["status"])).stdout || "{}");
+      if (!s.overlays?.includes(name)) break;
+      await cx.sleep(250);
+    }
+  }
 }

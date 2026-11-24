@@ -69,7 +69,7 @@ export default class Projects extends View {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        for (const p of projects) await launchProject(p);
+        for (const p of projects) await launchProject(p, cx);
         this.close();
       } catch (e) {
         notify({ title: "Projects", body: `${item.name}: ${e.message ?? e}`, level: "error" });
@@ -112,7 +112,7 @@ export default class Projects extends View {
 
   editProject(p) {
     p ??= { id: null, name: "", folder: "", tabs: [{ name: "", panes: [{ command: "" }] }] };
-    this.form = { id: p.id, name: this.input(p.name, "My project"), folder: this.input(p.folder, "~/Projects/my-project"), tabs: p.tabs.map((t) => this.tabForm(t)) };
+    this.form = { id: p.id, name: this.input(p.name, "My project"), folder: this.input(p.folder, "~/Projects/my-project"), apps: this.input((p.apps ?? []).join(", "), "Herdr mods to open, e.g. gitview-tab"), tabs: p.tabs.map((t) => this.tabForm(t)) };
     this.view = "project";
     this.form.name.focus();
   }
@@ -126,6 +126,7 @@ export default class Projects extends View {
       name,
       folder: f.folder.value().trim(),
       tabs: f.tabs.map((t) => ({ name: t.name.value().trim(), panes: t.panes.map((p) => ({ command: p.cmd.value().trim(), split: p.split })) })),
+      apps: f.apps.value().split(/[\s,]+/).filter(Boolean),
     };
     const list = this.data.projects;
     const i = list.findIndex((x) => x.id === project.id);
@@ -311,6 +312,7 @@ export default class Projects extends View {
       this.header(t, f.id ? "Edit project" : "New project"),
       h_flex().gap(8).items_center().child(label("Name")).child(this.field(t, f.name)),
       h_flex().gap(8).items_center().child(label("Folder")).child(this.field(t, f.folder)).child(browse),
+      h_flex().gap(8).items_center().child(label("Apps")).child(this.field(t, f.apps)),
       v_flex().id("pj-tabs").flex_1().min_h(0).overflow_y_scrollbar().gap(8)
         .children(f.tabs.map(tabCard))
         .child(h_flex().child(this.btn(t, "pj-addtab", "+ tab", (cx) => { f.tabs.push(this.tabForm()); cx.notify(); }))),

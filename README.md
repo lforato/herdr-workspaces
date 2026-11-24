@@ -3,6 +3,7 @@
 A [Herdr](https://herdr.dev) desktop mod that saves space layouts as projects and starts them in one step.
 
 - **Projects:** a name, a folder, and tabs. Each tab has panes, and each pane has a command and a split direction (right or down).
+- **Apps:** Herdr mods to open after the layout is built, for example `gitview-tab`. Each opens in the new space, as if you pressed its key there.
 - **Profiles:** a group of projects that start together, one space each.
 - Create, edit, filter, open and delete them from one dialog. There is no config file to write by hand.
 

@@ -366,29 +366,20 @@ export default class Projects extends View {
       .child(resizable_panel().size(right ? wb : hb).size_range(MIN).child(this.renderNode(t, tab, n.b, wb, hb)));
   }
 
-  // A pane card looks like a small terminal: its folder in the title strip, its command at a prompt.
+  // A pane card looks like a small terminal: two typed lines, `cd <folder>` and `❯ <command>`.
   renderLeaf(t, tab, n) {
     const on = tab.sel === n.id;
     const mono = t.typography?.mono ?? "Menlo";
-    const line = on ? t.accent : t.border;
-    const choose = div().id(`pj-dir-${n.id}`).flex_none().px(6).py(2).rounded(4).text_size(11).text_color(t.dim).cursor_pointer()
-      .hover((s) => s.bg(t.hover).text_color(t.foreground))
-      .on_click((_e, cx) => cx.spawn(async (cx) => {
-        const dir = await pickFolder({ prompt: "Run in this folder" });
-        if (dir) n.dir.set_value(tilde(dir));
-        cx.notify();
-      }))
-      .child("Choose…");
+    const row = (prompt, state, color) => h_flex().flex_none().h(30).gap(8).items_center()
+      .child(div().w(22).flex_none().font_family(mono).text_size(13).text_color(on ? t.accent : t.dim).child(prompt))
+      .child(Input.new(state).flex_1().h_full().font_family(mono).text_size(13.5).text_color(color));
     return div().size_full().p(3).child(
-      v_flex().id(`pj-leaf-${n.id}`).size_full().overflow_hidden().rounded(8).border_1().border_color(line).bg(t.background)
+      v_flex().id(`pj-leaf-${n.id}`).size_full().overflow_hidden().px(12).pt(8).rounded(8).border_1()
+        .border_color(on ? t.accent : t.border)
+        .bg(on ? t.selected : t.background)
         .on_mouse_down("left", (_e, cx) => { if (tab.sel !== n.id) { tab.sel = n.id; cx.notify(); } })
-        .child(h_flex().h(28).flex_none().pl(10).pr(4).gap(6).items_center().border_b_1().border_color(line).bg(on ? t.selected : t.surface)
-          .child(div().flex_none().text_size(11).opacity(0.7).child("📁"))
-          .child(Input.new(n.dir).flex_1().h_full().text_size(11.5).text_color(t.muted))
-          .child(choose))
-        .child(h_flex().flex_none().px(14).pt(10).gap(8).items_center()
-          .child(div().flex_none().font_family(mono).text_size(14).text_color(on ? t.accent : t.dim).child("❯"))
-          .child(Input.new(n.cmd).flex_1().h(30).font_family(mono).text_size(13.5).text_color(t.foreground))));
+        .child(row("cd", n.dir, t.muted))
+        .child(row("❯", n.cmd, t.foreground)));
   }
 
   // Acts on the selected pane.

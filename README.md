@@ -2,8 +2,6 @@
 
 A [Herdr](https://herdr.dev) desktop mod that saves your terminal layouts as **projects** and starts them in one step. Group projects into **profiles** to start several at once.
 
-![Projects](design/Projects.png)
-
 - **Project:** a name, a folder, and tabs. Each tab is a pane layout you draw: split panes right or down, drag dividers to size them, delete them. Each pane has a command and, optionally, its own directory.
 - **Mods:** Herdr mods to open after the layout is built, for example `gitview-tab`.
 - **Profile:** an ordered list of projects that start together, one space each.

@@ -1,5 +1,7 @@
 # herdr-workspaces
 
+<img width="1280" height="640" alt="herdr-workspaces banner" src="https://github.com/user-attachments/assets/20e1dfeb-efde-43ed-a291-196505399b74" />
+
 Mods for the [Herdr](https://herdr.dev) desktop app.
 
 | Mod | What it does |

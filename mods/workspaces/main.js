@@ -148,6 +148,7 @@ export default class Projects extends View {
   }
 
   tabForm(t = { name: "" }) {
+    if (t.mod !== undefined) return { key: ++this.n, name: this.input(t.name, "Tab name"), mod: this.input(t.mod, "Mod name, e.g. steampunk-office") };
     const form = (n) => (n.split ? { id: n.id ?? uid(), split: n.split, ratio: n.ratio ?? 0.5, a: form(n.a), b: form(n.b) } : this.leafForm(n));
     const layout = form(layoutOf(t));
     return { key: ++this.n, name: this.input(t.name, "Tab name"), layout, sel: leaves(layout)[0].id };
@@ -159,29 +160,17 @@ export default class Projects extends View {
       id: p.id,
       name: this.input(p.name, "Project name"),
       folder: this.input(p.folder, "~/Projects/my-project"),
-      apps: [...(p.apps ?? [])],
-      modInput: this.input("", "Add a mod…"),
-      tabs: p.tabs.map((t) => this.tabForm(t)),
+      tabs: [...p.tabs, ...(p.apps ?? []).map((mod) => ({ name: mod, mod }))].map((t) => this.tabForm(t)),
       tab: 0,
     };
-    this.form.modInput.on("submit", (_e, cx) => this.addMods(cx));
     this.view = "project";
     this.form.name.focus();
-  }
-
-  addMods(cx) {
-    const f = this.form;
-    const names = f.modInput.value().split(/[\s,]+/).filter(Boolean);
-    for (const n of names) if (!f.apps.includes(n)) f.apps.push(n);
-    f.modInput.set_value("");
-    cx?.notify();
   }
 
   saveProject(cx) {
     const f = this.form;
     const name = f.name.value().trim();
     if (!name) { this.formError = "Name is required"; cx.notify(); return; }
-    this.addMods();
     const toData = (n) => (n.split
       ? { id: n.id, split: n.split, ratio: Math.round(n.ratio * 1000) / 1000, a: toData(n.a), b: toData(n.b) }
       : { id: n.id, command: n.cmd.value().trim(), dir: n.dir.value().trim() });
@@ -189,8 +178,7 @@ export default class Projects extends View {
       id: f.id ?? uid(),
       name,
       folder: f.folder.value().trim(),
-      tabs: f.tabs.map((t) => ({ name: t.name.value().trim(), layout: toData(t.layout) })),
-      apps: f.apps,
+      tabs: f.tabs.map((t) => ({ name: t.name.value().trim(), ...(t.mod ? { mod: t.mod.value().trim() } : { layout: toData(t.layout) }) })),
     };
     const list = this.data.projects;
     const i = list.findIndex((x) => x.id === project.id);
@@ -283,7 +271,7 @@ export default class Projects extends View {
       const tab = this.view === "project" ? this.form.tabs[this.form.tab] : null;
       if (k === "escape") this.back(cx);
       else if (cmd && k === "s") this.view === "project" ? this.saveProject(cx) : this.saveProfile(cx);
-      else if (cmd && k === "d" && tab) this.splitSel(tab, e.modifiers?.shift ? "down" : "right", cx);
+      else if (cmd && k === "d" && tab && !tab.mod) this.splitSel(tab, e.modifiers?.shift ? "down" : "right", cx);
       else return;
       cx.stop_propagation();
       return;
@@ -523,26 +511,20 @@ export default class Projects extends View {
       if (dir) f.folder.set_value(tilde(dir));
       cx.notify();
     }));
-    const mods = h_flex().min_h(30).flex_1().flex_wrap().px(6).py(3).gap(5).items_center().rounded(7).border_1().border_color(t.input).bg(t.background)
-      .children(f.apps.map((m) => h_flex().gap(6).items_center().px(6).py(2).rounded(5).border_1().border_color(t.border).bg(t.selected)
-        .child(div().font_family(mono).text_size(11.5).child(m))
-        .child(div().id(`pj-rmmod-${m}`).cursor_pointer().on_click((_e, cx) => { f.apps = f.apps.filter((x) => x !== m); this.dirty = true; cx.notify(); })
-          .child(this.icon(t, "x", 10, t.dim)))))
-      .child(Input.new(f.modInput).flex_1().min_w(100).h(22).text_size(12.5).text_color(t.foreground));
     const fields = h_flex().flex_none().gap(12).px(18).py(12).border_b_1().border_color(t.border).items_end()
       .child(v_flex().flex_1().gap(6).child(this.label(t, "Project folder"))
-        .child(h_flex().gap(6).child(this.field(t, f.folder, { icon: "folder", mono: true })).child(browse)))
-      .child(v_flex().flex_1().gap(6).child(this.label(t, "Herdr mods to open")).child(mods));
+        .child(h_flex().gap(6).child(this.field(t, f.folder, { icon: "folder", mono: true })).child(browse)));
     const main = v_flex().flex_1().min_w(0).p(18).gap(10)
       .child(this.renderTabs(t, f))
-      .child(div().w(CANVAS.w + 14).flex_none().p(6).rounded(10).border_1().border_color(t.border).bg(t.chrome ?? t.background)
-        .child(div().w(CANVAS.w).h(CANVAS.h).child(this.renderNode(t, tab, tab.layout, CANVAS.w, CANVAS.h))))
-      .child(this.renderPanel(t, f, tab))
+      .children(tab.mod ? [this.renderModTab(t, tab)] : [
+        div().w(CANVAS.w + 14).flex_none().p(6).rounded(10).border_1().border_color(t.border).bg(t.chrome ?? t.background)
+          .child(div().w(CANVAS.w).h(CANVAS.h).child(this.renderNode(t, tab, tab.layout, CANVAS.w, CANVAS.h))),
+        this.renderPanel(t, f, tab),
+      ])
       .child(h_flex().items_center().gap(14).text_size(11).text_color(t.dim)
         .child("Click the active tab's name to rename · Drag a divider to resize")
         .child(div().flex_1())
-        .child(this.kbd(t, "⌘D", "split right"))
-        .child(this.kbd(t, "⇧⌘D", "split down")));
+        .when(!tab.mod, (el) => el.child(this.kbd(t, "⌘D", "split right")).child(this.kbd(t, "⇧⌘D", "split down"))));
     return [header, v_flex().flex_1().min_h(0).child(fields).child(v_flex().flex_1().min_h(0).child(main))];
   }
 
@@ -550,7 +532,7 @@ export default class Projects extends View {
   renderTabs(t, f) {
     const row = (tab, i) => {
       const on = f.tab === i;
-      const count = plural(leaves(tab.layout).length, "pane");
+      const count = tab.mod ? "mod" : plural(leaves(tab.layout).length, "pane");
       return h_flex().id(`pj-tab-${tab.key}`).h(30).px(10).gap(6).items_center().rounded(7).cursor_pointer().border_1()
         .border_color(on ? t.accent : "#00000000")
         .when(on, (el) => el.bg(alpha(t.accent, "1a")))
@@ -560,7 +542,10 @@ export default class Projects extends View {
           ? h_flex().w(90).h_full().items_center().child(Input.new(tab.name).flex_1().h_full().text_size(12).text_color(t.foreground))
           : div().text_size(12).text_color(t.foreground).child(tab.name.value().trim() || `Tab ${i + 1}`))
         .child(div().text_size(10.5).text_color(t.dim).child(count))
-        .when(on && f.tabs.length > 1, (el) => el.child(div().id(`pj-rmtab-${tab.key}`).cursor_pointer()
+        .when(on && f.tabs.length > 1, (el) => el
+          .child(this.moveBtn(t, f, i, -1))
+          .child(this.moveBtn(t, f, i, 1))
+          .child(div().id(`pj-rmtab-${tab.key}`).cursor_pointer()
           .on_click((_e, cx) => {
             cx.stop_propagation();
             f.tabs.splice(i, 1);
@@ -572,7 +557,37 @@ export default class Projects extends View {
     };
     return h_flex().flex_none().flex_wrap().gap(3).items_center()
       .children(f.tabs.map(row))
-      .child(this.iconBtn(t, "pj-addtab", "plus", (cx) => { f.tabs.push(this.tabForm()); f.tab = f.tabs.length - 1; this.dirty = true; cx.notify(); }));
+      .child(this.iconBtn(t, "pj-addtab", "plus", (cx) => { f.tabs.push(this.tabForm()); f.tab = f.tabs.length - 1; this.dirty = true; cx.notify(); }))
+      .child(h_flex().id("pj-addmod").h(30).px(8).gap(4).items_center().rounded(7).cursor_pointer().text_size(12).text_color(t.muted)
+        .hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => { f.tabs.push(this.tabForm({ name: "", mod: "" })); f.tab = f.tabs.length - 1; this.dirty = true; cx.notify(); })
+        .child(this.icon(t, "plus", 12, t.muted))
+        .child("Mod tab"));
+  }
+
+  // Moves the active tab one place; its position is its launch order.
+  moveBtn(t, f, i, d) {
+    const j = i + d;
+    const ok = j >= 0 && j < f.tabs.length;
+    return div().id(`pj-mv${d}-${f.tabs[i].key}`).px(2).text_size(13).text_color(ok ? t.muted : t.dim).when(!ok, (el) => el.opacity(0.4))
+      .when(ok, (el) => el.cursor_pointer().on_click((_e, cx) => {
+        cx.stop_propagation();
+        [f.tabs[i], f.tabs[j]] = [f.tabs[j], f.tabs[i]];
+        f.tab = j;
+        this.dirty = true;
+        cx.notify();
+      }))
+      .child(d < 0 ? "‹" : "›");
+  }
+
+  // A mod tab has no panes: the mod is its only content.
+  renderModTab(t, tab) {
+    return h_flex().flex_none().gap(12).p(12).items_end().rounded(10).border_1().border_color(t.border).bg(t.chrome ?? t.background)
+      .child(v_flex().w(130).flex_none().gap(3).pb(4)
+        .child(this.micro(t, `Mod · ${tab.name.value().trim() || "tab"}`, t.accent))
+        .child(div().text_size(13).font_semibold().child("Mod in this tab")))
+      .child(v_flex().flex_1().min_w(0).gap(5).child(this.label(t, "Mod name"))
+        .child(this.field(t, tab.mod, { grow: false, mono: true }).w_full()));
   }
 
   // A split is a resizable group (drag its border); a leaf is a pane card.

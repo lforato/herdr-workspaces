@@ -107,37 +107,38 @@ async function resize(tab, jobs, cx) {
 
 async function launchProject(p, area, sends, cx) {
   const folder = expand(p.folder);
-  const tabs = p.tabs?.length ? p.tabs : [{ name: "" }];
-  let space, firstTab;
+  // Old projects listed mods in `apps`; they open as mod tabs after the others.
+  const tabs = [...(p.tabs?.length ? p.tabs : [{ name: "" }]), ...(p.apps ?? []).map((mod) => ({ name: mod, mod }))];
+  let space, firstTab, spare;
   const resizes = [];
   // Built off screen (focus false), so typing elsewhere isn't caught by the new terminals.
   for (const t of tabs) {
+    if (t.mod) {
+      if (!space) {
+        // a space always starts with a terminal tab; it goes once the mod tabs are in
+        const r = await hdo("space.new", { name: p.name, folder, focus: false });
+        space = r.space;
+        spare = r.tab;
+      }
+      const r = await hdo("tab.new", { space, name: t.name || t.mod, mod: t.mod, focus: false });
+      firstTab ??= r.tab;
+      continue;
+    }
     let r;
     if (space) r = await hdo("tab.new", { space, name: t.name, folder, focus: false });
     else {
       r = await hdo("space.new", { name: p.name, folder, tab: t.name, focus: false });
       space = r.space;
-      firstTab = r.tab;
     }
+    firstTab ??= r.tab;
     const jobs = [];
     await build(layoutOf(t), await paneOf(r.terminal), r.terminal, folder, area, jobs, sends);
     if (jobs.length) resizes.push([r.tab, jobs]);
   }
   for (const [tab, jobs] of resizes) await resize(tab, jobs, cx);
   await hdo("tab.select", { id: firstTab });
-  // Apps (mods) open against the focused space, like their key would. mod.open
-  // toggles, so wait for each one's overlay to finish before the next.
-  const errors = [];
-  for (const name of p.apps ?? []) {
-    try {
-      await hdo("mod.open", { name });
-    } catch (e) {
-      errors.push(`${name}: ${e.message ?? e}`);
-      continue;
-    }
-    for (let i = 0; i < 40 && (await herdr("status")).overlays?.includes(name); i++) await cx.sleep(250);
-  }
-  return errors;
+  if (spare && spare !== firstTab) await hdo("tab.close", { id: spare, confirmed: true });
+  return [];
 }
 
 // job: { projects, vp }. Answers the errors, one line each.

@@ -1,0 +1,4 @@
+{
+  "global": { "cmd-o": "mod.open:workspaces" },
+  "mod:workspaces": { "cmd-n": "workspaces.new" }
+}

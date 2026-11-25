@@ -1,13 +1,13 @@
 # Workspaces
 
-A Herdr desktop mod (id `projects`, folder `mods/projects`) that saves terminal layouts as **projects**, groups them into **profiles**, and starts them in one step. Opened with `cmd-o`. Built with `gpui-kit` / `gpui-base`; colors come from Herdr's `theme()` so it follows the active theme.
+A Herdr desktop mod (id `workspaces`, folder `mods/workspaces`) that saves terminal layouts as **projects**, groups them into **profiles**, and starts them in one step. Opened with `cmd-o`. Built with `gpui-kit` / `gpui-base`; colors come from Herdr's `theme()` so it follows the active theme.
 
 ## Files
 
-- `mod.json`: `{ "place": "none", "title": "Projects", "overlay": { "kind": "dialog", "width": 1080, "height": 0.85, "modal": true } }`
+- `mod.json`: `{ "place": "none", "title": "Workspaces", "overlay": { "kind": "dialog", "width": 1080, "height": 0.85, "modal": true } }`
 - `main.js`: the UI, one `View` class with three views (list, project editor, profile editor) plus a small loading dialog.
 - `launch.js`: builds a project in Herdr.
-- `icons/*.svg`: lucide-style 2px line icons, loaded with `svg("mods/projects/icons/<name>.svg")`.
+- `icons/*.svg`: lucide-style 2px line icons, loaded with `svg("mods/workspaces/icons/<name>.svg")`.
 - `keys.json`: `cmd-o` opens the dialog; `cmd-n` makes a new project instead of a new space.
 
 ## Data

@@ -1,4 +1,0 @@
-{
-  "global": { "cmd-o": "mod.open:projects" },
-  "mod:projects": { "cmd-n": "projects.new" }
-}

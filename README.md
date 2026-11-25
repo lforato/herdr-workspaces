@@ -6,17 +6,17 @@ Mods for the [Herdr](https://herdr.dev) desktop app.
 
 | Mod | What it does |
 | --- | --- |
-| [`projects`](mods/projects) | Save terminal layouts (tabs, split panes, a command per pane) as projects, group them into profiles, and start them with `cmd-o`. |
+| [`workspaces`](mods/workspaces) | Save terminal layouts (tabs, split panes, a command per pane) as projects, group them into profiles, and start them with `cmd-o`. |
 
 ## Install
 
 ```sh
 git clone https://github.com/lforato/herdr-workspaces ~/herdr-workspaces
-ln -s ~/herdr-workspaces/mods/projects ~/.config/herdr-app/mods/projects
+ln -s ~/herdr-workspaces/mods/workspaces ~/.config/herdr-app/mods/workspaces
 ```
 
-The folder name must stay `projects`: it is the mod id. Then merge `mods/projects/keys.json` into `~/.config/herdr-app/keys.json`.
+The folder name must stay `workspaces`: it is the mod id. Then merge `mods/workspaces/keys.json` into `~/.config/herdr-app/keys.json`.
 
 ## Use
 
-Press `cmd-o`. `cmd-n` new, `cmd-e` edit, `Tab` switches projects / profiles, `Enter` opens, `cmd-s` saves, `Esc` goes back. See [RECIPE.md](mods/projects/RECIPE.md) for the full behavior.
+Press `cmd-o`. `cmd-n` new, `cmd-e` edit, `Tab` switches projects / profiles, `Enter` opens, `cmd-s` saves, `Esc` goes back. See [RECIPE.md](mods/workspaces/RECIPE.md) for the full behavior.

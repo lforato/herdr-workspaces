@@ -65,7 +65,7 @@ export default class Projects extends View {
       }
       cx.notify();
     });
-    // cmd-n is global space.new; keys.json's "mod:projects" section sends it here instead.
+    // cmd-n is global space.new; keys.json's "mod:workspaces" section sends it here instead.
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
@@ -104,7 +104,7 @@ export default class Projects extends View {
     if (!item) return;
     const projects = this.mode === "projects" ? [item] : item.projects.map((id) => this.data.projects.find((p) => p.id === id)).filter(Boolean);
     if (!projects.length) return;
-    openOverlay({ mod: "projects", kind: "dialog", modal: true, width: 340, height: 190, props: { launch: { projects, vp: this.vp } } });
+    openOverlay({ mod: "workspaces", kind: "dialog", modal: true, width: 340, height: 190, props: { launch: { projects, vp: this.vp } } });
     this.close();
   }
 
@@ -307,7 +307,7 @@ export default class Projects extends View {
   // ---- shared pieces ------------------------------------------------------
 
   icon(t, name, size = 16, color = t.muted) {
-    return svg(`mods/projects/icons/${name}.svg`).size(size).flex_none().text_color(color);
+    return svg(`mods/workspaces/icons/${name}.svg`).size(size).flex_none().text_color(color);
   }
 
   tint(t, i) {
